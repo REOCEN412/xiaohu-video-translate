@@ -16,13 +16,13 @@
 它把原本要开四五个软件、来回折腾一两个小时的活，串成一条全自动流水线：
 
 ```
-视频链接/本地文件
+视频链接/本地文件/音频文件
       │
       ▼
   ① 下载  ──►  ② 提取音频 + Whisper 转写  ──►  ③ 翻译  ──►  ④ 润色  ──►  ⑤ 烧录字幕
       │                  （词级时间戳）          （任意外语→中文）  （断句/去标点/对轴）      │
       │                                                                                ▼
-      └──────────────────────────────────────────────►  带中文字幕的视频 + Markdown 文稿
+      └──────────────────────────────────────────────►  带中文字幕的视频/音频字幕视频 + Markdown 文稿
 ```
 
 你只管说一句话，五步它自己走完。中间任何一步要调整（双语、不要水印、快速模式），对它说就行。
@@ -43,15 +43,16 @@
 - **字幕是给人看的**，不是机翻直出：自动纠正转写听错的专有名词（Claude 常被听成 cloud、MCP 被听成 NCP），按语义断句，术语保留英文。
 - **烧字幕 + 水印一次编码完成**，不掉画质。
 
-### 它其实是三个技能
+### 它其实是四个技能
 
 | 技能 | 职责 |
 |------|------|
 | **xiaohu-video-md** | 总指挥。下载 / 提音频 / Whisper 转写 / 调用润色 / 烧字幕 / 出 Markdown |
 | **xiaohu-subtitle-polish** | 字幕翻译与润色。纠错、翻译、断句、去标点、时间戳对齐、双语 ASS |
 | **xiaohu-video-download** | 纯下载工具。下视频 / 下音频 / 下播放列表 / 给本地视频烧字幕 |
+| **xiaohu-media-translate** | Codex 复用入口。检索上传/本地音视频，处理 MP3 等音频，把双语字幕与音频合成 MP4 |
 
-翻译管线由 `xiaohu-video-md` 总调度，翻译那一步它自己会去叫 `xiaohu-subtitle-polish`。三个技能各自独立，也可单独用。
+翻译管线由 `xiaohu-video-md` 总调度，翻译那一步它自己会去叫 `xiaohu-subtitle-polish`。`xiaohu-media-translate` 面向 Codex，把上传/本地检索、音频输入和音频字幕合成串起来。四个技能各自独立，也可单独用。
 
 ### 演示案例
 
@@ -67,12 +68,13 @@
 
 核心是脚本 + 说明书（每个技能的 `SKILL.md`），**任何能读技能/指令文件、又能跑命令的 AI 编程工具都能驱动它**。各家加载方式不同：
 
-- **Claude Code**：原生技能。`install.sh` 直接把三个技能装进 `~/.claude/skills/`
+- **Claude Code**：原生技能。`install.sh` 直接把技能装进 `~/.claude/skills/`
 - **OpenClaw（小龙虾）**：同样是技能制，按它的 `openclaw skills` 方式装入即可
 - **Gemini CLI**：仓库自带 `gemini-extension.json`，作为 extension 加载
-- **Codex 等其他**：把对应技能的 `SKILL.md` 喂给它当规则，让它照着调用 `scripts/` 里的脚本；或者直接手动跑脚本
+- **Codex**：`install.sh` 同时把技能装进 `~/.codex/skills/`，可直接复用 `$xiaohu-media-translate`
+- **其他工具**：把对应技能的 `SKILL.md` 喂给它当规则，让它照着调用 `scripts/` 里的脚本；或者直接手动跑脚本
 
-下面的安装步骤以 Claude Code 为例，其他工具把"复制到 `~/.claude/skills/`"换成各自的技能目录即可。
+下面的安装脚本会同时覆盖 Claude Code 和 Codex，其他工具把技能目录换成各自的加载目录即可。
 
 ### 安装
 
@@ -81,6 +83,9 @@
 ```bash
 # 1. 基础工具（没装 Homebrew 先去 brew.sh 装）
 brew install yt-dlp ffmpeg
+# 如果要烧录字幕或把 MP3 合成双语字幕 MP4，但 ffmpeg 缺 ass/subtitles 滤镜：
+# brew install ffmpeg-full
+# 脚本会自动优先使用 /opt/homebrew/opt/ffmpeg-full/bin/ffmpeg
 
 # 2. 转写引擎（Apple Silicon 选 mlx-whisper，走 GPU 加速最快）
 pip3 install --break-system-packages mlx-whisper
@@ -138,6 +143,8 @@ cd xiaohu-video-translate && bash install.sh
 | `翻译这个日语视频，要中英双语字幕 https://...` | 同上，多语种源，双语字幕 |
 | `把这个视频转成文字 https://...` | 只出 Markdown 文稿，不烧字幕 |
 | `给我本地这个视频加中文字幕 ~/Movies/talk.mp4` | 本地文件直接处理 |
+| `把这个 MP3 做成中英双语字幕视频 ~/Downloads/talk.mp3` | 转写→翻译→双语字幕→合成 MP4 |
+| `找一下我刚上传的采访音频并翻译成双语字幕` | 在上传/下载/桌面/文档目录检索音视频后处理 |
 | `下载这个视频 https://...` | 只下载视频 + 外挂字幕 |
 | `用快速模式转写 https://...` | 换更快但略低精度的模型 |
 | `翻译时不要水印` | 关掉水印 |
@@ -148,6 +155,7 @@ cd xiaohu-video-translate && bash install.sh
 
 - **YouTube 下载报 403 / SABR / PO Token？** 脚本会自动从浏览器读 cookies 重试（默认 Chrome）。还不行就挂代理：给脚本加 `--proxy http://127.0.0.1:7890`。
 - **烧出来的中文字幕是方块？** 多半是字体问题：macOS 用苹方，Windows 改微软雅黑，Linux 改 Noto Sans CJK（见上方安装说明）。
+- **提示 ffmpeg 缺少 ass/subtitles 滤镜？** 普通 Homebrew `ffmpeg` 可能不带 libass，安装 `ffmpeg-full` 后重试；脚本会自动优先使用 `/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg`。
 - **字幕跑在说话人前面 / 半句挤一起？** 本工具用词级时间戳按句子和停顿切，正常不会；个别片段不对多半是 BGM 太响导致 Whisper 误判，可要求重转。
 - **抖音报未登录？** 重跑一次 `douyin_login.py`。
 
@@ -164,13 +172,13 @@ A set of **Skills** for AI coding CLIs that turn any foreign-language video into
 ### End-to-end pipeline
 
 ```
-video URL / local file
+video URL / local file / audio file
         │
         ▼
   ① download → ② audio + Whisper transcribe → ③ translate → ④ polish → ⑤ burn-in subtitles
                    (word-level timestamps)    (any language→中文)  (line-break/align)      │
         │                                                                                  ▼
-        └────────────────────────────────────────►  Chinese-subtitled video + Markdown transcript
+        └────────────────────────────────────────►  Chinese-subtitled video/audio-caption MP4 + Markdown transcript
 ```
 
 ### Multi-language
@@ -184,13 +192,14 @@ Not English-only. **English, Japanese, Korean, French, Spanish… anything Whisp
 - **Human-grade subtitles** — fixes ASR mishears, breaks lines by meaning, keeps technical terms in English. Bilingual mode uses real ASS for a true size contrast (Chinese large, English small).
 - **Burn-in + watermark in one encode.**
 
-### The three skills
+### The four skills
 
 | Skill | Role |
 |-------|------|
 | **xiaohu-video-md** | Orchestrator: download / audio / Whisper / call the polisher / burn-in / Markdown |
 | **xiaohu-subtitle-polish** | Subtitle translation & polishing: fixes, translation, line-breaking, timestamp alignment, bilingual ASS |
 | **xiaohu-video-download** | Pure downloader: video / audio / playlists / burn subs onto a local file |
+| **xiaohu-media-translate** | Codex entrypoint: find uploaded/local media, process audio files like MP3, and merge bilingual subtitles with audio into MP4 |
 
 ### Demo
 
@@ -209,7 +218,8 @@ The core is scripts + a `SKILL.md` per skill — **any agent that can read a ski
 - **Claude Code** — native skills; `install.sh` drops them into `~/.claude/skills/`
 - **OpenClaw** — also skill-based; install via its `openclaw skills`
 - **Gemini CLI** — a `gemini-extension.json` is included
-- **Codex & others** — feed the `SKILL.md` as instructions and let it call the `scripts/`, or run the scripts directly
+- **Codex** — `install.sh` also drops skills into `~/.codex/skills/`; use `$xiaohu-media-translate`
+- **Others** — feed the `SKILL.md` as instructions and let it call the `scripts/`, or run the scripts directly
 
 ### Install
 
@@ -217,6 +227,9 @@ The core is scripts + a `SKILL.md` per skill — **any agent that can read a ski
 
 ```bash
 brew install yt-dlp ffmpeg
+# If subtitle burn-in or MP3-to-bilingual-MP4 fails because ffmpeg lacks ass/subtitles filters:
+# brew install ffmpeg-full
+# The script auto-prefers /opt/homebrew/opt/ffmpeg-full/bin/ffmpeg when present.
 pip3 install --break-system-packages mlx-whisper   # or faster-whisper on non-Apple-Silicon
 git clone https://github.com/xiaohuailabs/xiaohu-video-translate.git
 cd xiaohu-video-translate && bash install.sh
@@ -225,7 +238,7 @@ cd xiaohu-video-translate && bash install.sh
 **Windows** — this project is tuned for Mac. Easiest path is **WSL2 + Ubuntu**, then it behaves like Linux. For native Windows, three differences:
 
 1. Use **faster-whisper**, not mlx-whisper (MLX is Apple-Silicon-only; the script auto-falls-back): `pip install yt-dlp faster-whisper` + `winget install Gyan.FFmpeg`
-2. `install.sh` is bash — run it under Git Bash, or manually copy the three `skills/` folders into your tool's skill directory and copy each `config.example.json` to `config.json`
+2. `install.sh` is bash — run it under Git Bash, or manually copy the `skills/` folders into your tool's skill directory and copy each `config.example.json` to `config.json`
 3. Swap the burn-in font: change `FontName=PingFang SC` to `FontName=Microsoft YaHei`, and the watermark font path to a Windows font (e.g. `C:/Windows/Fonts/msyh.ttc`)
 
 **Linux** — same as WSL: `apt install ffmpeg` + `pip install yt-dlp faster-whisper`, and use a CJK font (e.g. Noto Sans CJK) for burn-in.
@@ -242,6 +255,8 @@ Restart your AI tool, then just say:
 - *"Translate this Japanese video with bilingual subtitles: https://..."*
 - *"Just transcribe this to text: https://..."*
 - *"Add Chinese subtitles to my local file ~/Movies/talk.mp4"*
+- *"Turn this MP3 into a bilingual subtitled MP4: ~/Downloads/talk.mp3"*
+- *"Find the interview audio I uploaded and translate it with bilingual subtitles"*
 
 ### License
 

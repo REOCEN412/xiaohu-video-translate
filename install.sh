@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # xiaohu-video-translate 一键安装脚本
-# 把三个技能复制到 ~/.claude/skills/，并从模板生成 config.json
+# 把技能复制到 Claude/Codex 的 skills 目录，并从模板生成 config.json
 #
 # 用法：
 #   bash install.sh
@@ -10,25 +10,34 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILLS_SRC="$REPO_DIR/skills"
-SKILLS_DST="$HOME/.claude/skills"
+SKILLS_DSTS=("$HOME/.claude/skills" "$HOME/.codex/skills")
 
-SKILLS=(xiaohu-video-download xiaohu-video-md xiaohu-subtitle-polish)
+SKILLS=(xiaohu-video-download xiaohu-video-md xiaohu-subtitle-polish xiaohu-media-translate)
 
-echo "==> 安装目标：$SKILLS_DST"
-mkdir -p "$SKILLS_DST"
+ffmpeg_has_subtitle_filters() {
+  local bin="$1"
+  local filters
+  filters="$("$bin" -hide_banner -filters 2>/dev/null || true)"
+  [[ "$filters" == *" ass "* || "$filters" == *" subtitles "* ]]
+}
 
-for s in "${SKILLS[@]}"; do
-  echo "==> 复制技能：$s"
-  rm -rf "$SKILLS_DST/$s"
-  cp -R "$SKILLS_SRC/$s" "$SKILLS_DST/$s"
+for SKILLS_DST in "${SKILLS_DSTS[@]}"; do
+  echo "==> 安装目标：$SKILLS_DST"
+  mkdir -p "$SKILLS_DST"
 
-  # 从模板生成 config.json（已存在则不覆盖，保护用户已有配置）
-  example="$SKILLS_DST/$s/config.example.json"
-  config="$SKILLS_DST/$s/config.json"
-  if [ -f "$example" ] && [ ! -f "$config" ]; then
-    cp "$example" "$config"
-    echo "    已生成 config.json（请按需修改 output_dir）"
-  fi
+  for s in "${SKILLS[@]}"; do
+    echo "==> 复制技能：$s"
+    rm -rf "$SKILLS_DST/$s"
+    cp -R "$SKILLS_SRC/$s" "$SKILLS_DST/$s"
+
+    # 从模板生成 config.json（已存在则不覆盖，保护用户已有配置）
+    example="$SKILLS_DST/$s/config.example.json"
+    config="$SKILLS_DST/$s/config.json"
+    if [ -f "$example" ] && [ ! -f "$config" ]; then
+      cp "$example" "$config"
+      echo "    已生成 config.json（请按需修改 output_dir）"
+    fi
+  done
 done
 
 echo ""
@@ -42,6 +51,17 @@ for bin in yt-dlp ffmpeg; do
     missing+=("$bin")
   fi
 done
+
+if command -v ffmpeg >/dev/null 2>&1; then
+  if ffmpeg_has_subtitle_filters ffmpeg; then
+    echo "    [OK] ffmpeg 字幕烧录滤镜"
+  elif [ -x "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg" ] && ffmpeg_has_subtitle_filters /opt/homebrew/opt/ffmpeg-full/bin/ffmpeg; then
+    echo "    [OK] ffmpeg-full 字幕烧录滤镜（脚本会自动优先使用）"
+  else
+    echo "    [缺] ffmpeg 缺少 ass/subtitles 滤镜；音频合成字幕视频和烧录字幕需要 ffmpeg-full/libass"
+    echo "         macOS 可尝试：brew install ffmpeg-full"
+  fi
+fi
 
 # whisper-cli 是可选备份转写引擎，缺了不影响默认流程（默认走 mlx/faster，模型自动下载）
 if command -v whisper-cli >/dev/null 2>&1; then
@@ -72,5 +92,5 @@ else
 fi
 
 echo ""
-echo "==> 完成。重启 Claude Code 后，对它说「把这个 YouTube 链接翻译成中文字幕视频」即可。"
-echo "    每个技能的输出目录在 ~/.claude/skills/<技能名>/config.json 里改。"
+echo "==> 完成。重启 Claude Code 或 Codex 后，对它说「把这个 YouTube 链接翻译成中文字幕视频」即可。"
+echo "    每个技能的输出目录在 ~/.claude/skills/<技能名>/config.json 或 ~/.codex/skills/<技能名>/config.json 里改。"

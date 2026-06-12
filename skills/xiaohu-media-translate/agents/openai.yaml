@@ -1,0 +1,6 @@
+interface:
+  display_name: "小淮媒体翻译"
+  short_description: "Search local media, transcribe, translate, and merge subtitles"
+  default_prompt: "Use $xiaohu-media-translate to translate a local audio or video file and create bilingual subtitles."
+policy:
+  allow_implicit_invocation: true
